@@ -5,13 +5,18 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployer } = await hre.getNamedAccounts();
   const { deploy } = hre.deployments;
 
-  const deployedFHECounter = await deploy("FHECounter", {
+  const deployedIdentityManagement = await deploy("IdentityManagement", {
     from: deployer,
     log: true,
   });
 
-  console.log(`FHECounter contract: `, deployedFHECounter.address);
+  console.log(`IdentityManagement contract: `, deployedIdentityManagement.address);
+
+  await hre.run("verify:verify", {
+    address: deployedIdentityManagement.address,
+    constructorArguments: [], // No constructor arguments for this contract
+  });
 };
 export default func;
-func.id = "deploy_fheCounter"; // id required to prevent reexecution
-func.tags = ["FHECounter"];
+func.id = "deploy_IdentityManagement"; // id required to prevent reexecution
+func.tags = ["IdentityManagement"];
