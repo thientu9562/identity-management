@@ -60,7 +60,9 @@ export const IdentityManagementDemo = () => {
   // Local states for inputs
   const [age, setAge] = useState<number>(25);
   const [isStudent, setIsStudent] = useState<boolean>(false);
-  const [passportHash, setPassportHash] = useState<string>("0x1234567890123456789012345678901234567890123456789012345678901234"); // Example as hex string
+  const [passportHash, setPassportHash] = useState<string>(
+    "0x1234567890123456789012345678901234567890123456789012345678901234",
+  ); // Example as hex string
   const [city, setCity] = useState<number>(1001);
   const [countryCode, setCountryCode] = useState<number>(0); // 0: US, 1: CA, 2: EU
 
@@ -83,7 +85,7 @@ export const IdentityManagementDemo = () => {
   const titleClass = "font-semibold text-black text-lg mt-4";
   const inputClass = "border border-gray-300 rounded p-2 mr-2 w-full mb-2";
 
-if (!isConnected) {
+  if (!isConnected) {
     console.log("isConnected:", isConnected);
     console.log("connect function:", connect);
     return (
@@ -114,11 +116,9 @@ if (!isConnected) {
   return (
     <div className="grid w-full gap-4">
       <div className="col-span-full mx-20 bg-black text-white">
-        <p className="font-semibold  text-3xl m-5">
+        <p className="font-semibold text-3xl m-5">
           FHEVM React Minimal Template -{" "}
-          <span className="font-mono font-normal text-gray-400">
-            IdentityManagement.sol
-          </span>
+          <span className="font-mono font-normal text-gray-400">IdentityManagement.sol</span>
         </p>
       </div>
       <div className="col-span-full mx-20 mt-4 px-5 pb-4 rounded-lg bg-white border-2 border-black">
@@ -130,12 +130,9 @@ if (!isConnected) {
             ? accounts.length === 0
               ? "No accounts"
               : `{ length: ${accounts.length}, [${accounts[0]}, ...] }`
-            : "undefined"
+            : "undefined",
         )}
-        {printProperty(
-          "Signer",
-          ethersSigner ? ethersSigner.address : "No signer"
-        )}
+        {printProperty("Signer", ethersSigner ? ethersSigner.address : "No signer")}
 
         <p className={titleClass}>Contract</p>
         {printProperty("IdentityManagement", identityManagement.contractAddress)}
@@ -145,10 +142,7 @@ if (!isConnected) {
         <div className="grid grid-cols-2 gap-4">
           <div className="rounded-lg bg-white border-2 border-black pb-4 px-4">
             <p className={titleClass}>FHEVM instance</p>
-            {printProperty(
-              "Fhevm Instance",
-              fhevmInstance ? "OK" : "undefined"
-            )}
+            {printProperty("Fhevm Instance", fhevmInstance ? "OK" : "undefined")}
             {printProperty("Fhevm Status", fhevmStatus)}
             {printProperty("Fhevm Error", fhevmError ?? "No Error")}
           </div>
@@ -166,11 +160,24 @@ if (!isConnected) {
       <div className="col-span-full mx-20 px-4 pb-4 rounded-lg bg-white border-2 border-black">
         <p className={titleClass}>Identity Status</p>
         {printProperty("isRegistered", identityManagement.isRegistered)}
+        {printProperty("registeredAge", identityManagement.registeredAge ?? "Not set")}
         {printProperty("requestIdOver18", identityManagement.requestIdOver18)}
         {printProperty("requestIdOver21", identityManagement.requestIdOver21)}
+        {printProperty("isProofValid (Age > 18)", identityManagement.isProofValid.over18 ?? "Not yet proven")}
+        {printProperty(
+          "isProofValid (Age > 21 & Valid Country)",
+          identityManagement.isProofValid.over21AndValidCountry ?? "Not yet proven",
+        )}
+        {printProperty(
+          "proofResults",
+          Array.from(identityManagement.proofResults.entries())
+            .map(([id, res]) => `requestId ${id}: ${res}`)
+            .join(", ") || "No results yet",
+        )}
       </div>
       <div className="col-span-full mx-20 px-4 pb-4 rounded-lg bg-white border-2 border-black">
         <p className={titleClass}>Register Identity (if not registered)</p>
+        <label>Age</label>
         <input
           className={inputClass}
           type="number"
@@ -187,6 +194,7 @@ if (!isConnected) {
           />
           Is Student
         </label>
+        <label>Passport</label>
         <input
           className={inputClass}
           type="text"
@@ -194,6 +202,7 @@ if (!isConnected) {
           onChange={(e) => setPassportHash(e.target.value)}
           placeholder="Passport Hash (hex string)"
         />
+        <label>City code</label>
         <input
           className={inputClass}
           type="number"
@@ -201,6 +210,7 @@ if (!isConnected) {
           onChange={(e) => setCity(Number(e.target.value))}
           placeholder="City Code (e.g., 1001)"
         />
+        <label>Country code</label>
         <input
           className={inputClass}
           type="number"
@@ -225,29 +235,33 @@ if (!isConnected) {
       <div className="grid grid-cols-2 mx-20 gap-4">
         <button
           className={buttonClass}
-          disabled={!identityManagement.canProve}
+          disabled={!identityManagement.canProve || identityManagement.isProofValid.over18 === false}
           onClick={identityManagement.proveAgeOver18}
         >
-          {identityManagement.canProve
+          {identityManagement.canProve && identityManagement.isProofValid.over18 !== false
             ? "Prove Age > 18"
             : identityManagement.isProving
               ? "Proving..."
               : !identityManagement.isRegistered
                 ? "Register First"
-                : "Cannot Prove"}
+                : identityManagement.isProofValid.over18 === false
+                  ? "Not Eligible (Age <= 18)"
+                  : "Cannot Prove"}
         </button>
         <button
           className={buttonClass}
-          disabled={!identityManagement.canProve}
+          disabled={!identityManagement.canProve || identityManagement.isProofValid.over21AndValidCountry === false}
           onClick={identityManagement.proveAgeOver21AndValidCountry}
         >
-          {identityManagement.canProve
+          {identityManagement.canProve && identityManagement.isProofValid.over21AndValidCountry !== false
             ? "Prove Age > 21 & Valid Country"
             : identityManagement.isProving
               ? "Proving..."
               : !identityManagement.isRegistered
                 ? "Register First"
-                : "Cannot Prove"}
+                : identityManagement.isProofValid.over21AndValidCountry === false
+                  ? "Not Eligible (Age <= 21 or Invalid Country)"
+                  : "Cannot Prove"}
         </button>
       </div>
       <div className="col-span-full mx-20 p-4 rounded-lg bg-white border-2 border-black">
@@ -277,8 +291,7 @@ function printProperty(name: string, value: unknown) {
   }
   return (
     <p className="text-black">
-      {name}:{" "}
-      <span className="font-mono font-semibold text-black">{displayValue}</span>
+      {name}: <span className="font-mono font-semibold text-black">{displayValue}</span>
     </p>
   );
 }
@@ -287,16 +300,14 @@ function printBooleanProperty(name: string, value: boolean) {
   if (value) {
     return (
       <p className="text-black">
-        {name}:{" "}
-        <span className="font-mono font-semibold text-green-500">true</span>
+        {name}: <span className="font-mono font-semibold text-green-500">true</span>
       </p>
     );
   }
 
   return (
     <p className="text-black">
-      {name}:{" "}
-      <span className="font-mono font-semibold text-red-500">false</span>
+      {name}: <span className="font-mono font-semibold text-red-500">false</span>
     </p>
   );
 }

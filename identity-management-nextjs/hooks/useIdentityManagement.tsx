@@ -1,14 +1,7 @@
 "use client";
 
 import { ethers } from "ethers";
-import {
-  RefObject,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { FhevmInstance } from "@/fhevm/fhevmTypes";
 import { GenericStringStorage } from "@/fhevm/GenericStringStorage";
@@ -34,16 +27,14 @@ type IdentityManagementInfoType = {
 
 /**
  * Resolves IdentityManagement contract metadata for the given EVM chainId.
- * 
- * Retrieves contract ABI and address from generated mappings. If chainId is not provided or not found, 
+ *
+ * Retrieves contract ABI and address from generated mappings. If chainId is not provided or not found,
  * returns only the ABI. Otherwise, includes address, chainId, and chainName if available.
- * 
+ *
  * @param chainId - Target chain ID (e.g., 1 for Ethereum Mainnet, 5 for Goerli). Undefined returns ABI only.
  * @returns Object containing contract ABI and optional address, chainId, and chainName.
  */
-function getIdentityManagementByChainId(
-  chainId: number | undefined
-): IdentityManagementInfoType {
+function getIdentityManagementByChainId(chainId: number | undefined): IdentityManagementInfoType {
   if (!chainId) {
     // Return ABI only if no chainId is provided
     return { abi: IdentityManagementABI.abi };
@@ -68,7 +59,7 @@ function getIdentityManagementByChainId(
 /**
  * Main React hook for interacting with the IdentityManagement smart contract.
  * Provides functions to register an identity, prove age-related claims, and check registration status.
- * 
+ *
  * @param parameters - Object containing dependencies like FhevmInstance, provider, signer, and chain checks.
  * @returns Object with contract interaction functions, states, and status flags.
  */
@@ -82,14 +73,7 @@ export const useIdentityManagement = (parameters: {
   sameChain: RefObject<(chainId: number | undefined) => boolean>; // Function to check chain consistency
   sameSigner: RefObject<(ethersSigner: ethers.JsonRpcSigner | undefined) => boolean>; // Function to check signer consistency
 }) => {
-  const {
-    instance,
-    chainId,
-    ethersSigner,
-    ethersReadonlyProvider,
-    sameChain,
-    sameSigner,
-  } = parameters;
+  const { instance, chainId, ethersSigner, ethersReadonlyProvider, sameChain, sameSigner } = parameters;
 
   //////////////////////////////////////////////////////////////////////////////
   // States + Refs
@@ -101,6 +85,8 @@ export const useIdentityManagement = (parameters: {
   const [requestIdOver18, setRequestIdOver18] = useState<bigint | undefined>(undefined);
   // State to store request ID for age over 21 and valid country proof
   const [requestIdOver21, setRequestIdOver21] = useState<bigint | undefined>(undefined);
+  // State to store proof results from ProofResult events
+  const [proofResults, setProofResults] = useState<Map<bigint, boolean>>(new Map());
   // State to track if registration status is being refreshed
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   // State to track if identity registration is in progress
@@ -109,6 +95,13 @@ export const useIdentityManagement = (parameters: {
   const [isProving, setIsProving] = useState<boolean>(false);
   // State to store status messages for UI feedback
   const [message, setMessage] = useState<string>("");
+  // State to store the registered age for pre-checking proof eligibility
+  const [registeredAge, setRegisteredAge] = useState<number | undefined>(undefined);
+  // State to store proof validity results
+  const [isProofValid, setIsProofValid] = useState<{ over18: boolean | null; over21AndValidCountry: boolean | null }>({
+    over18: null,
+    over21AndValidCountry: null,
+  });
 
   // Ref to store current IdentityManagement contract info
   const identityManagementRef = useRef<IdentityManagementInfoType | undefined>(undefined);
@@ -187,7 +180,7 @@ export const useIdentityManagement = (parameters: {
     const thisIdentityManagementContract = new ethers.Contract(
       thisIdentityManagementAddress,
       identityManagementRef.current.abi,
-      ethersReadonlyProvider
+      ethersReadonlyProvider,
     );
 
     // Check if the signer's address is registered
@@ -221,20 +214,48 @@ export const useIdentityManagement = (parameters: {
     }
   }, [canGetRegistration, refreshRegistrationStatus]);
 
+  // Event listener for ProofResult to update proof validity
+  useEffect(() => {
+    if (ethersReadonlyProvider && identityManagement.address && identityManagement.abi) {
+      const contract = new ethers.Contract(identityManagement.address, identityManagement.abi, ethersReadonlyProvider);
+
+      const listener = (user: string, requestId: bigint, proofType: string, result: boolean) => {
+        console.log(
+          `[useIdentityManagement] ProofResult event: requestId=${requestId}, proofType=${proofType}, result=${result}`,
+        );
+
+        setProofResults((prev) => {
+          const newMap = new Map(prev);
+          newMap.set(requestId, result);
+          return newMap;
+        });
+
+        if (proofType === "AgeOver18") {
+          setIsProofValid((prev) => ({ ...prev, over18: result }));
+          setMessage(result ? "You are over 18" : "You are not over 18");
+        } else if (proofType === "AgeOver21AndValidCountry") {
+          setIsProofValid((prev) => ({ ...prev, over21AndValidCountry: result }));
+          setMessage(
+            result ? "You are over 21 and from a valid country" : "You are not over 21 or from an invalid country",
+          );
+        }
+      };
+
+      contract.on("ProofResult", listener);
+
+      return () => {
+        contract.off("ProofResult", listener);
+      };
+    }
+  }, [ethersReadonlyProvider, identityManagement.address, identityManagement.abi]);
+
   //////////////////////////////////////////////////////////////////////////////
   // Register Identity
   //////////////////////////////////////////////////////////////////////////////
 
   // Memoized flag indicating if identity registration is possible
   const canRegister = useMemo(() => {
-    return (
-      identityManagement.address &&
-      instance &&
-      ethersSigner &&
-      !isRegistered &&
-      !isRefreshing &&
-      !isRegistering
-    );
+    return identityManagement.address && instance && ethersSigner && !isRegistered && !isRefreshing && !isRegistering;
   }, [identityManagement.address, instance, ethersSigner, isRegistered, isRefreshing, isRegistering]);
 
   // Function to register an identity with encrypted inputs
@@ -245,10 +266,13 @@ export const useIdentityManagement = (parameters: {
         return;
       }
 
-      // Check if required dependencies are available
+      // Check if contract address and FHEVM instance are available
       if (!identityManagement.address || !instance) {
         return;
       }
+
+      // Store age for pre-checking proof eligibility
+      setRegisteredAge(age);
 
       // Store current context for consistency checks
       const thisChainId = chainId;
@@ -257,7 +281,7 @@ export const useIdentityManagement = (parameters: {
       const thisIdentityManagementContract = new ethers.Contract(
         thisIdentityManagementAddress,
         identityManagement.abi,
-        thisEthersSigner
+        thisEthersSigner,
       );
 
       // Set registering state
@@ -266,7 +290,6 @@ export const useIdentityManagement = (parameters: {
       setMessage("Start registering identity...");
 
       const run = async () => {
-        // Small delay to ensure UI updates
         await new Promise((resolve) => setTimeout(resolve, 100));
 
         // Check if context is still valid
@@ -278,35 +301,35 @@ export const useIdentityManagement = (parameters: {
         try {
           const signerAddress = await thisEthersSigner.getAddress();
 
-          // Encrypt age (8-bit)
+          // Encrypt age
           const inputAge = instance.createEncryptedInput(thisIdentityManagementAddress, signerAddress);
           inputAge.add8(age);
           const encAge = await inputAge.encrypt();
           const encryptedAge = encAge.handles[0];
           const ageProof = encAge.inputProof;
 
-          // Encrypt student status (boolean)
+          // Encrypt isStudent
           const inputStudent = instance.createEncryptedInput(thisIdentityManagementAddress, signerAddress);
           inputStudent.addBool(isStudent);
           const encStudent = await inputStudent.encrypt();
           const encryptedIsStudent = encStudent.handles[0];
           const studentProof = encStudent.inputProof;
 
-          // Encrypt passport hash (256-bit)
+          // Encrypt passportHash
           const inputPassport = instance.createEncryptedInput(thisIdentityManagementAddress, signerAddress);
           inputPassport.add256(passportHash);
           const encPassport = await inputPassport.encrypt();
           const encryptedPassportHash = encPassport.handles[0];
           const passportProof = encPassport.inputProof;
 
-          // Encrypt city (16-bit)
+          // Encrypt city
           const inputCity = instance.createEncryptedInput(thisIdentityManagementAddress, signerAddress);
           inputCity.add16(city);
           const encCity = await inputCity.encrypt();
           const encryptedCity = encCity.handles[0];
           const cityProof = encCity.inputProof;
 
-          // Encrypt country code (8-bit)
+          // Encrypt countryCode
           const inputCountry = instance.createEncryptedInput(thisIdentityManagementAddress, signerAddress);
           inputCountry.add8(countryCode);
           const encCountry = await inputCountry.encrypt();
@@ -332,7 +355,7 @@ export const useIdentityManagement = (parameters: {
             encryptedCity,
             cityProof,
             encryptedCountryCode,
-            countryCodeProof
+            countryCodeProof,
           );
 
           setMessage(`Wait for tx:${tx.hash}...`);
@@ -375,7 +398,7 @@ export const useIdentityManagement = (parameters: {
       refreshRegistrationStatus,
       sameChain,
       sameSigner,
-    ]
+    ],
   );
 
   //////////////////////////////////////////////////////////////////////////////
@@ -384,13 +407,7 @@ export const useIdentityManagement = (parameters: {
 
   // Memoized flag indicating if proof submission is possible
   const canProve = useMemo(() => {
-    return (
-      identityManagement.address &&
-      ethersSigner &&
-      isRegistered &&
-      !isRefreshing &&
-      !isProving
-    );
+    return identityManagement.address && ethersSigner && isRegistered && !isRefreshing && !isProving;
   }, [identityManagement.address, ethersSigner, isRegistered, isRefreshing, isProving]);
 
   // Function to prove the user is over 18
@@ -405,6 +422,13 @@ export const useIdentityManagement = (parameters: {
       return;
     }
 
+    // Check registered age to avoid unnecessary contract calls
+    if (registeredAge !== undefined && registeredAge <= 18) {
+      setMessage("You are not over 18, no need to call contract.");
+      setIsProofValid((prev) => ({ ...prev, over18: false }));
+      return;
+    }
+
     // Store current context for consistency checks
     const thisChainId = chainId;
     const thisIdentityManagementAddress = identityManagement.address;
@@ -412,7 +436,7 @@ export const useIdentityManagement = (parameters: {
     const thisIdentityManagementContract = new ethers.Contract(
       thisIdentityManagementAddress,
       identityManagement.abi,
-      thisEthersSigner
+      thisEthersSigner,
     );
 
     // Set proving state
@@ -444,14 +468,14 @@ export const useIdentityManagement = (parameters: {
 
         // Create interface for parsing logs
         const iface = new ethers.Interface(identityManagement.abi);
-        
+
         // Calculate event topic hash for ProofRequested event
         const eventSignature = "ProofRequested(address,uint256,string)";
         const eventTopic = ethers.id(eventSignature);
-        
+
         // Find the ProofRequested event log
         const log = receipt.logs.find((l) => l.topics[0] === eventTopic);
-        
+
         if (!log) {
           setMessage("No ProofRequested log found in transaction receipt.");
           console.log("Available logs:", receipt.logs);
@@ -459,11 +483,11 @@ export const useIdentityManagement = (parameters: {
         }
 
         console.log("Found log:", log);
-        
+
         // Parse the event log
         const parsedLog = iface.parseLog(log);
         console.log("Parsed log:", parsedLog);
-        
+
         if (!parsedLog) {
           setMessage("Failed to parse log. Check ABI or log data.");
           console.log("Log data:", log.data, "Topics:", log.topics);
@@ -494,14 +518,7 @@ export const useIdentityManagement = (parameters: {
     };
 
     run();
-  }, [
-    ethersSigner,
-    identityManagement.address,
-    identityManagement.abi,
-    chainId,
-    sameChain,
-    sameSigner,
-  ]);
+  }, [ethersSigner, identityManagement.address, identityManagement.abi, chainId, sameChain, sameSigner, registeredAge]);
 
   // Function to prove the user is over 21 and has a valid country code
   const proveAgeOver21AndValidCountry = useCallback(async () => {
@@ -515,6 +532,13 @@ export const useIdentityManagement = (parameters: {
       return;
     }
 
+    // Check registered age to avoid unnecessary contract calls
+    if (registeredAge !== undefined && registeredAge <= 21) {
+      setMessage("You are not over 21, no need to call contract.");
+      setIsProofValid((prev) => ({ ...prev, over21AndValidCountry: false }));
+      return;
+    }
+
     // Store current context for consistency checks
     const thisChainId = chainId;
     const thisIdentityManagementAddress = identityManagement.address;
@@ -522,7 +546,7 @@ export const useIdentityManagement = (parameters: {
     const thisIdentityManagementContract = new ethers.Contract(
       thisIdentityManagementAddress,
       identityManagement.abi,
-      thisEthersSigner
+      thisEthersSigner,
     );
 
     // Set proving state
@@ -554,14 +578,14 @@ export const useIdentityManagement = (parameters: {
 
         // Create interface for parsing logs
         const iface = new ethers.Interface(identityManagement.abi);
-        
+
         // Calculate event topic hash for ProofRequested event
         const eventSignature = "ProofRequested(address,uint256,string)";
         const eventTopic = ethers.id(eventSignature);
-        
+
         // Find the ProofRequested event log
         const log = receipt.logs.find((l) => l.topics[0] === eventTopic);
-        
+
         if (!log) {
           setMessage("No ProofRequested log found in transaction receipt.");
           console.log("Available logs:", receipt.logs);
@@ -569,11 +593,11 @@ export const useIdentityManagement = (parameters: {
         }
 
         console.log("Found log:", log);
-        
+
         // Parse the event log
         const parsedLog = iface.parseLog(log);
         console.log("Parsed log:", parsedLog);
-        
+
         if (!parsedLog) {
           setMessage("Failed to parse log. Check ABI or log data.");
           console.log("Log data:", log.data, "Topics:", log.topics);
@@ -604,14 +628,7 @@ export const useIdentityManagement = (parameters: {
     };
 
     run();
-  }, [
-    ethersSigner,
-    identityManagement.address,
-    identityManagement.abi,
-    chainId,
-    sameChain,
-    sameSigner,
-  ]);
+  }, [ethersSigner, identityManagement.address, identityManagement.abi, chainId, sameChain, sameSigner, registeredAge]);
 
   // Return all functions, states, and status flags for use in the component
   return {
@@ -626,10 +643,13 @@ export const useIdentityManagement = (parameters: {
     isRegistered,
     requestIdOver18,
     requestIdOver21,
+    proofResults,
     message,
     isRegistering,
     isProving,
     isRefreshing,
-    isDeployed
+    isDeployed,
+    isProofValid,
+    registeredAge,
   };
 };

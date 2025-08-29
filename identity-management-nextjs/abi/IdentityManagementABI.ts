@@ -105,6 +105,37 @@ export const IdentityManagementABI = {
       anonymous: false,
       inputs: [
         {
+          indexed: true,
+          internalType: "address",
+          name: "user",
+          type: "address",
+        },
+        {
+          indexed: false,
+          internalType: "uint256",
+          name: "requestId",
+          type: "uint256",
+        },
+        {
+          indexed: false,
+          internalType: "string",
+          name: "proofType",
+          type: "string",
+        },
+        {
+          indexed: false,
+          internalType: "bool",
+          name: "result",
+          type: "bool",
+        },
+      ],
+      name: "ProofResult",
+      type: "event",
+    },
+    {
+      anonymous: false,
+      inputs: [
+        {
           indexed: false,
           internalType: "enum IdentityManagement.CountryCode",
           name: "countryCode",
@@ -154,6 +185,11 @@ export const IdentityManagementABI = {
           type: "uint256",
         },
         {
+          internalType: "bool",
+          name: "decryptedInput",
+          type: "bool",
+        },
+        {
           internalType: "bytes[]",
           name: "signatures",
           type: "bytes[]",
@@ -162,6 +198,19 @@ export const IdentityManagementABI = {
       name: "handleProofResult",
       outputs: [],
       stateMutability: "nonpayable",
+      type: "function",
+    },
+    {
+      inputs: [],
+      name: "isDecryptionPending",
+      outputs: [
+        {
+          internalType: "bool",
+          name: "",
+          type: "bool",
+        },
+      ],
+      stateMutability: "view",
       type: "function",
     },
     {
@@ -178,6 +227,19 @@ export const IdentityManagementABI = {
           internalType: "bool",
           name: "",
           type: "bool",
+        },
+      ],
+      stateMutability: "view",
+      type: "function",
+    },
+    {
+      inputs: [],
+      name: "latestRequestId",
+      outputs: [
+        {
+          internalType: "uint256",
+          name: "",
+          type: "uint256",
         },
       ],
       stateMutability: "view",
